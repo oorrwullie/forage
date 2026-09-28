@@ -4,35 +4,14 @@ package config
 import (
 	"fmt"
 	"io"
-	"strings"
 
+	"github.com/oorrwullie/forage"
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the complete v0.0.1 configuration surface.
 type Config struct {
-	Routes []Route `yaml:"routes"`
-}
-
-// Route is a configuration-declared inference route. It deliberately has no
-// discovery or provider-specific behavior.
-type Route struct {
-	Name         string       `yaml:"name"`
-	Provider     string       `yaml:"provider"`
-	Model        string       `yaml:"model"`
-	Endpoint     string       `yaml:"endpoint"`
-	Cost         string       `yaml:"cost"`
-	DataPolicy   string       `yaml:"data_policy"`
-	Capabilities Capabilities `yaml:"capabilities"`
-}
-
-// Capabilities contains the route properties that configuration may declare.
-type Capabilities struct {
-	Chat           bool `yaml:"chat"`
-	JSONSchema     bool `yaml:"json_schema"`
-	Usage          bool `yaml:"usage"`
-	ReasoningUsage bool `yaml:"reasoning_usage"`
-	ContextTokens  int  `yaml:"context_tokens"`
+	Routes []forage.Route `yaml:"routes"`
 }
 
 // Parse decodes and validates a configuration document.
@@ -63,23 +42,6 @@ func (c Config) Validate() error {
 			return fmt.Errorf("route %d: duplicate name %q", i, route.Name)
 		}
 		names[route.Name] = struct{}{}
-	}
-	return nil
-}
-
-// Validate confirms a route has the identity required to be explicitly used.
-func (r Route) Validate() error {
-	for field, value := range map[string]string{
-		"name":        r.Name,
-		"provider":    r.Provider,
-		"model":       r.Model,
-		"endpoint":    r.Endpoint,
-		"cost":        r.Cost,
-		"data_policy": r.DataPolicy,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s is required", field)
-		}
 	}
 	return nil
 }
