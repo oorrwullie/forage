@@ -1,7 +1,10 @@
 // Package forage contains the provider-neutral route and policy core.
 package forage
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // CostClass describes whether a route can charge for inference.
 type CostClass string
@@ -45,7 +48,7 @@ type Route struct {
 // Validate verifies a route's explicit configuration shape. Eligibility is
 // intentionally evaluated separately for each request.
 func (r Route) Validate() error {
-	if r.Name == "" || r.Provider == "" || r.Model == "" || r.Endpoint == "" {
+	if strings.TrimSpace(r.Name) == "" || strings.TrimSpace(r.Provider) == "" || strings.TrimSpace(r.Model) == "" || strings.TrimSpace(r.Endpoint) == "" {
 		return fmt.Errorf("name, provider, model, and endpoint are required")
 	}
 	if !validCost(r.CostClass) {

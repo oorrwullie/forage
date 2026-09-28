@@ -55,6 +55,18 @@ func TestEvaluateRejectsTrainableDataForRepositoryUnlessPermitted(t *testing.T) 
 	}
 }
 
+func TestEvaluateRejectsUnsetAndUnsupportedSensitivityIncludingLocal(t *testing.T) {
+	route := freeRoute()
+	route.DataPolicy = forage.DataPolicyLocal
+	for _, sensitivity := range []forage.Sensitivity{"", forage.SensitivityUnknown, forage.Sensitivity("unsupported")} {
+		need := zeroCostNeed()
+		need.Sensitivity = sensitivity
+		if got := forage.Evaluate([]forage.Route{route}, need); len(got.Eligible) != 0 {
+			t.Fatalf("sensitivity %q eligible = %#v, want rejection", sensitivity, got.Eligible)
+		}
+	}
+}
+
 func TestEvaluateEnforcesContextAndPinnedModel(t *testing.T) {
 	route := freeRoute()
 	need := zeroCostNeed()
@@ -126,6 +138,77 @@ func TestDispatchFallbackNeverCallsPaidRoute(t *testing.T) {
 	}
 	if adapter.calls != 1 {
 		t.Fatalf("Adapter.Chat calls = %d, want only free route call", adapter.calls)
+	}
+}
+
+func TestDispatchDoesNotFallbackAfterEligibleRouteError(t *testing.T) {
+	first := freeRoute()
+	second := first
+	second.Name = "second"
+	resolver := &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: second}}
+	wantErr := &forage.AdapterError{Kind: forage.ErrorProtocol}
+	adapter := &recordingAdapter{err: wantErr}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+
+	_, err := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Dispatch() error = %v, want original adapter error", err)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("Adapter.Chat calls = %d, want exactly one", adapter.calls)
+	}
+}
+
+func TestDispatchRejectsUnsetAndUnsupportedSensitivityBeforeChat(t *testing.T) {
+	route := freeRoute()
+	route.DataPolicy = forage.DataPolicyLocal
+	resolver := &routeMap{routes: map[string]forage.Route{route.Name: route}}
+	adapter := &recordingAdapter{}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+	for _, sensitivity := range []forage.Sensitivity{"", forage.SensitivityUnknown, forage.Sensitivity("unsupported")} {
+		need := zeroCostNeed()
+		need.Sensitivity = sensitivity
+		_, err := dispatcher.Dispatch(context.Background(), []forage.Route{route}, forage.Request{Need: need})
+		if !errors.Is(err, forage.ErrNoEligibleRoute) {
+			t.Fatalf("sensitivity %q error = %v, want ErrNoEligibleRoute", sensitivity, err)
+		}
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("Adapter.Chat calls = %d, want 0", adapter.calls)
+	}
+}
+
+func TestRouteValidateRejectsWhitespaceRequiredFields(t *testing.T) {
+	fields := []struct {
+		name string
+		set  func(*forage.Route)
+	}{
+		{"name", func(r *forage.Route) { r.Name = " \t " }},
+		{"provider", func(r *forage.Route) { r.Provider = " \t " }},
+		{"model", func(r *forage.Route) { r.Model = " \t " }},
+		{"endpoint", func(r *forage.Route) { r.Endpoint = " \t " }},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			route := freeRoute()
+			field.set(&route)
+			if err := route.Validate(); err == nil {
+				t.Fatalf("Validate() error = nil, want whitespace-only %s rejected", field.name)
+			}
+		})
+	}
+}
+
+func TestRouteValidateRejectsUnsupportedPolicyEnums(t *testing.T) {
+	route := freeRoute()
+	route.CostClass = forage.CostClass("unsupported")
+	if err := route.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want unsupported cost rejected")
+	}
+	route = freeRoute()
+	route.DataPolicy = forage.DataPolicy("unsupported")
+	if err := route.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want unsupported data policy rejected")
 	}
 }
 

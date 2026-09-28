@@ -25,7 +25,6 @@ func (d Dispatcher) Dispatch(ctx context.Context, candidates []Route, req Reques
 	if d.Routes == nil || d.Adapter == nil {
 		return Response{}, ErrNoEligibleRoute
 	}
-	var lastErr error
 	for _, candidate := range candidates {
 		current, ok := d.Routes.Route(candidate.Name)
 		if !ok || len(Evaluate([]Route{current}, req.Need).Eligible) != 1 {
@@ -36,14 +35,7 @@ func (d Dispatcher) Dispatch(ctx context.Context, candidates []Route, req Reques
 		if err == nil {
 			return response, nil
 		}
-		var adapterErr *AdapterError
-		if !errors.As(err, &adapterErr) || !adapterErr.FallbackEligible() {
-			return Response{}, err
-		}
-		lastErr = err
-	}
-	if lastErr != nil {
-		return Response{}, lastErr
+		return Response{}, err
 	}
 	return Response{}, ErrNoEligibleRoute
 }

@@ -83,6 +83,13 @@ func eligible(route Route, need Need) string {
 }
 
 func dataAllowed(policy DataPolicy, need Need) bool {
+	switch need.Sensitivity {
+	case SensitivityPublic, SensitivityRepository, SensitivitySensitive:
+		// Caller sensitivity must be explicit and supported before route policy
+		// can authorize any route.
+	default:
+		return false
+	}
 	if policy == DataPolicyLocal {
 		return true
 	}
@@ -94,7 +101,6 @@ func dataAllowed(policy DataPolicy, need Need) bool {
 			return true
 		}
 		return (policy == DataPolicyMayTrain && need.AllowMayTrain) || (policy == DataPolicyUnknown && need.AllowUnknownPolicy)
-	default:
-		return false
 	}
+	return false
 }
