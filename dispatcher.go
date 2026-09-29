@@ -13,16 +13,21 @@ type RouteResolver interface {
 	Route(name string) (Route, bool)
 }
 
+// AdapterResolver returns the adapter configured for an explicitly declared provider.
+type AdapterResolver interface {
+	Adapter(provider string) (Adapter, bool)
+}
+
 // Dispatcher owns the only normal execution path to Adapter.Chat.
 type Dispatcher struct {
-	Routes  RouteResolver
-	Adapter Adapter
+	Routes   RouteResolver
+	Adapters AdapterResolver
 }
 
 // Dispatch re-resolves and rechecks each candidate immediately before Chat.
 // Candidate routes therefore never act as cached authorization.
 func (d Dispatcher) Dispatch(ctx context.Context, candidates []Route, req Request) (Response, error) {
-	if d.Routes == nil || d.Adapter == nil {
+	if d.Routes == nil || d.Adapters == nil {
 		return Response{}, ErrNoEligibleRoute
 	}
 	for _, candidate := range candidates {
@@ -30,8 +35,12 @@ func (d Dispatcher) Dispatch(ctx context.Context, candidates []Route, req Reques
 		if !ok || len(Evaluate([]Route{current}, req.Need).Eligible) != 1 {
 			continue
 		}
+		adapter, ok := d.Adapters.Adapter(current.Provider)
+		if !ok || adapter == nil {
+			return Response{}, ErrNoEligibleRoute
+		}
 
-		response, err := d.Adapter.Chat(ctx, current, req)
+		response, err := adapter.Chat(ctx, current, req)
 		if err == nil {
 			return response, nil
 		}

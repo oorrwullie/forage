@@ -41,3 +41,26 @@ routes:
 		t.Fatalf("Parse() error = %v, want model validation error", err)
 	}
 }
+
+func TestParseAcceptsHeterogeneousExplicitFreeRoutes(t *testing.T) {
+	cfg, err := config.Parse(strings.NewReader(`
+routes:
+  - name: openai-free
+    provider: openai-compatible
+    model: free-openai
+    endpoint: http://127.0.0.1:8080/v1/chat/completions
+    cost: free
+    data_policy: no-train
+    capabilities: {chat: true, context_tokens: 4096}
+  - name: ollama-free
+    provider: ollama
+    model: qwen3-coder:30b
+    endpoint: http://127.0.0.1:11434/api/chat
+    cost: free
+    data_policy: local
+    capabilities: {chat: true, context_tokens: 4096}
+`))
+	if err != nil || len(cfg.Routes) != 2 {
+		t.Fatalf("Parse() = %#v, %v", cfg, err)
+	}
+}

@@ -106,7 +106,7 @@ func TestDispatchRevalidatesRouteImmediatelyBeforeChat(t *testing.T) {
 	route := freeRoute()
 	resolver := &routeMap{routes: map[string]forage.Route{route.Name: route}}
 	adapter := &recordingAdapter{}
-	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
 	candidates := forage.Evaluate([]forage.Route{route}, zeroCostNeed()).Eligible
 
 	mutated := route
@@ -129,7 +129,7 @@ func TestDispatchFallbackNeverCallsPaidRoute(t *testing.T) {
 	paid.CostClass = forage.CostPaid
 	resolver := &routeMap{routes: map[string]forage.Route{free.Name: free, paid.Name: paid}}
 	adapter := &recordingAdapter{err: &forage.AdapterError{Kind: forage.ErrorProtocol}}
-	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
 
 	_, err := dispatcher.Dispatch(context.Background(), []forage.Route{free, paid}, forage.Request{Need: zeroCostNeed()})
 	var adapterErr *forage.AdapterError
@@ -148,7 +148,7 @@ func TestDispatchDoesNotFallbackAfterEligibleRouteError(t *testing.T) {
 	resolver := &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: second}}
 	wantErr := &forage.AdapterError{Kind: forage.ErrorProtocol}
 	adapter := &recordingAdapter{err: wantErr}
-	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
 
 	_, err := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()})
 	if !errors.Is(err, wantErr) {
@@ -164,7 +164,7 @@ func TestDispatchRejectsUnsetAndUnsupportedSensitivityBeforeChat(t *testing.T) {
 	route.DataPolicy = forage.DataPolicyLocal
 	resolver := &routeMap{routes: map[string]forage.Route{route.Name: route}}
 	adapter := &recordingAdapter{}
-	dispatcher := forage.Dispatcher{Routes: resolver, Adapter: adapter}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
 	for _, sensitivity := range []forage.Sensitivity{"", forage.SensitivityUnknown, forage.Sensitivity("unsupported")} {
 		need := zeroCostNeed()
 		need.Sensitivity = sensitivity
@@ -175,6 +175,58 @@ func TestDispatchRejectsUnsetAndUnsupportedSensitivityBeforeChat(t *testing.T) {
 	}
 	if adapter.calls != 0 {
 		t.Fatalf("Adapter.Chat calls = %d, want 0", adapter.calls)
+	}
+}
+
+func TestDispatchUsesAuthoritativeRouteProvider(t *testing.T) {
+	candidate := freeRoute()
+	candidate.Provider = "openai"
+	current := candidate
+	current.Provider = "ollama"
+	resolver := &routeMap{routes: map[string]forage.Route{candidate.Name: current}}
+	staleAdapter := &recordingAdapter{}
+	currentAdapter := &recordingAdapter{}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"openai": staleAdapter, "ollama": currentAdapter}}
+
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{candidate}, forage.Request{Need: zeroCostNeed()}); err != nil {
+		t.Fatal(err)
+	}
+	if staleAdapter.calls != 0 || currentAdapter.calls != 1 {
+		t.Fatalf("calls stale=%d current=%d, want 0/1", staleAdapter.calls, currentAdapter.calls)
+	}
+}
+
+func TestDispatchRejectsUnknownProviderBeforeChat(t *testing.T) {
+	route := freeRoute()
+	route.Provider = "unknown"
+	resolver := &routeMap{routes: map[string]forage.Route{route.Name: route}}
+	adapter := &recordingAdapter{}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
+
+	_, err := dispatcher.Dispatch(context.Background(), []forage.Route{route}, forage.Request{Need: zeroCostNeed()})
+	if !errors.Is(err, forage.ErrNoEligibleRoute) || adapter.calls != 0 {
+		t.Fatalf("Dispatch() = %v calls=%d, want ErrNoEligibleRoute and no calls", err, adapter.calls)
+	}
+}
+
+func TestDispatchResolvesHeterogeneousProvidersToDifferentAdapters(t *testing.T) {
+	openAI := freeRoute()
+	openAI.Name, openAI.Provider = "openai", "openai-compatible"
+	ollama := freeRoute()
+	ollama.Name, ollama.Provider = "ollama", "ollama"
+	resolver := &routeMap{routes: map[string]forage.Route{openAI.Name: openAI, ollama.Name: ollama}}
+	openAIAdapter := &recordingAdapter{}
+	ollamaAdapter := &recordingAdapter{}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"openai-compatible": openAIAdapter, "ollama": ollamaAdapter}}
+
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{openAI}, forage.Request{Need: zeroCostNeed()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{ollama}, forage.Request{Need: zeroCostNeed()}); err != nil {
+		t.Fatal(err)
+	}
+	if openAIAdapter.calls != 1 || ollamaAdapter.calls != 1 {
+		t.Fatalf("adapter calls openai=%d ollama=%d, want 1/1", openAIAdapter.calls, ollamaAdapter.calls)
 	}
 }
 
@@ -222,6 +274,13 @@ func (r *routeMap) Route(name string) (forage.Route, bool) {
 type recordingAdapter struct {
 	calls int
 	err   error
+}
+
+type adapterMap map[string]forage.Adapter
+
+func (m adapterMap) Adapter(provider string) (forage.Adapter, bool) {
+	a, ok := m[provider]
+	return a, ok
 }
 
 func (a *recordingAdapter) Chat(context.Context, forage.Route, forage.Request) (forage.Response, error) {
