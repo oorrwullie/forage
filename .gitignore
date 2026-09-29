@@ -1,0 +1,14 @@
+# Local development / agent artifacts
+.superpowers/
+
+# Local configuration and environment
+.env
+*.local.yaml
+*.local.yml
+
+# Build and test artifacts
+/forage
+coverage.out
+
+# macOS
+.DS_Store

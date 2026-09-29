@@ -16,6 +16,10 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		fmt.Println("usage: forage <config.yaml> | forage serve --config <config.yaml> --listen <loopback:port>")
+		return nil
+	}
 	if len(args) > 0 && args[0] == "serve" {
 		return serve(args[1:])
 	}
