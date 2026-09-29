@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oorrwullie/forage"
 )
@@ -141,21 +142,107 @@ func TestDispatchFallbackNeverCallsPaidRoute(t *testing.T) {
 	}
 }
 
-func TestDispatchDoesNotFallbackAfterEligibleRouteError(t *testing.T) {
+func TestDispatchFallsBackInCandidateOrder(t *testing.T) {
 	first := freeRoute()
 	second := first
 	second.Name = "second"
 	resolver := &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: second}}
-	wantErr := &forage.AdapterError{Kind: forage.ErrorProtocol}
-	adapter := &recordingAdapter{err: wantErr}
+	adapter := &scriptedAdapter{errs: []error{&forage.AdapterError{Kind: forage.ErrorProtocol}, nil}}
 	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
 
-	_, err := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("Dispatch() error = %v, want original adapter error", err)
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()}); err != nil {
+		t.Fatal(err)
 	}
-	if adapter.calls != 1 {
-		t.Fatalf("Adapter.Chat calls = %d, want exactly one", adapter.calls)
+	if got := adapter.routes; len(got) != 2 || got[0] != first.Name || got[1] != second.Name {
+		t.Fatalf("attempt order = %#v, want [%q %q]", got, first.Name, second.Name)
+	}
+}
+
+func TestDispatchStopsForNonFallbackErrorsAndContext(t *testing.T) {
+	first, second := twoFreeRoutes()
+	for _, err := range []error{
+		&forage.AdapterError{Kind: forage.ErrorAuth},
+		errors.New("untyped"),
+		context.Canceled,
+		context.DeadlineExceeded,
+	} {
+		t.Run(err.Error(), func(t *testing.T) {
+			adapter := &scriptedAdapter{errs: []error{err, nil}}
+			dispatcher := fallbackDispatcher(first, second, adapter)
+			_, got := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()})
+			if !errors.Is(got, err) || adapter.calls != 1 {
+				t.Fatalf("error=%v calls=%d, want first error and one call", got, adapter.calls)
+			}
+		})
+	}
+}
+
+func TestDispatchHonorsAttemptBudgetAndReturnsLastFallbackError(t *testing.T) {
+	first, second := twoFreeRoutes()
+	third := second
+	third.Name = "third"
+	resolver := &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: second, third.Name: third}}
+	firstErr := &forage.AdapterError{Kind: forage.ErrorUnavailable, RetryAfter: time.Hour}
+	secondErr := &forage.AdapterError{Kind: forage.ErrorProtocol}
+	for _, tc := range []struct {
+		name           string
+		max, wantCalls int
+		want           error
+	}{
+		{"one", 1, 1, firstErr}, {"two", 2, 2, secondErr}, {"unlimited", 0, 3, secondErr}, {"negative unlimited", -1, 3, secondErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := &scriptedAdapter{errs: []error{firstErr, secondErr, secondErr}}
+			dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
+			_, got := dispatcher.Dispatch(context.Background(), []forage.Route{first, second, third}, forage.Request{Need: zeroCostNeed(), Budget: forage.Budget{MaxAttempts: tc.max}})
+			if !errors.Is(got, tc.want) || adapter.calls != tc.wantCalls {
+				t.Fatalf("error=%v calls=%d", got, adapter.calls)
+			}
+		})
+	}
+}
+
+func TestDispatchSkipsStaleOrIneligibleRoutesWithoutConsumingAttempts(t *testing.T) {
+	stale, eligible := twoFreeRoutes()
+	stale.Name = "stale"
+	paid := stale
+	paid.CostClass = forage.CostPaid
+	resolver := &routeMap{routes: map[string]forage.Route{stale.Name: paid, eligible.Name: eligible}}
+	adapter := &scriptedAdapter{errs: []error{nil}}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{stale, eligible}, forage.Request{Need: zeroCostNeed(), Budget: forage.Budget{MaxAttempts: 1}}); err != nil || adapter.calls != 1 || adapter.routes[0] != eligible.Name {
+		t.Fatalf("error=%v calls=%d routes=%#v", err, adapter.calls, adapter.routes)
+	}
+}
+
+func TestDispatchFallbackRevalidatesAndResolvesCurrentProvider(t *testing.T) {
+	first, second := twoFreeRoutes()
+	second.Provider = "stale"
+	current := second
+	current.Provider = "current"
+	resolver := &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: current}}
+	firstAdapter := &scriptedAdapter{errs: []error{&forage.AdapterError{Kind: forage.ErrorEffectiveModelMismatch}}}
+	currentAdapter := &scriptedAdapter{errs: []error{nil}}
+	staleAdapter := &scriptedAdapter{}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": firstAdapter, "stale": staleAdapter, "current": currentAdapter}}
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{first, second}, forage.Request{Need: zeroCostNeed()}); err != nil || firstAdapter.calls != 1 || staleAdapter.calls != 0 || currentAdapter.calls != 1 {
+		t.Fatalf("error=%v calls first=%d stale=%d current=%d", err, firstAdapter.calls, staleAdapter.calls, currentAdapter.calls)
+	}
+}
+
+func TestDispatchFailsClosedForUnknownAdapterAndNoAttempts(t *testing.T) {
+	unknown, eligible := twoFreeRoutes()
+	unknown.Provider = "unknown"
+	resolver := &routeMap{routes: map[string]forage.Route{unknown.Name: unknown, eligible.Name: eligible}}
+	adapter := &scriptedAdapter{errs: []error{nil}}
+	dispatcher := forage.Dispatcher{Routes: resolver, Adapters: adapterMap{"test": adapter}}
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{unknown, eligible}, forage.Request{Need: zeroCostNeed()}); !errors.Is(err, forage.ErrNoEligibleRoute) || adapter.calls != 0 {
+		t.Fatalf("unknown adapter error=%v calls=%d", err, adapter.calls)
+	}
+	missing := freeRoute()
+	resolver = &routeMap{routes: map[string]forage.Route{}}
+	if _, err := dispatcher.Dispatch(context.Background(), []forage.Route{missing}, forage.Request{Need: zeroCostNeed()}); !errors.Is(err, forage.ErrNoEligibleRoute) {
+		t.Fatalf("no attempts error=%v", err)
 	}
 }
 
@@ -274,6 +361,29 @@ func (r *routeMap) Route(name string) (forage.Route, bool) {
 type recordingAdapter struct {
 	calls int
 	err   error
+}
+
+type scriptedAdapter struct {
+	calls  int
+	routes []string
+	errs   []error
+}
+
+func (a *scriptedAdapter) Chat(_ context.Context, route forage.Route, _ forage.Request) (forage.Response, error) {
+	a.routes = append(a.routes, route.Name)
+	err := a.errs[a.calls]
+	a.calls++
+	return forage.Response{}, err
+}
+
+func twoFreeRoutes() (forage.Route, forage.Route) {
+	first := freeRoute()
+	second := first
+	second.Name = "second"
+	return first, second
+}
+func fallbackDispatcher(first, second forage.Route, adapter forage.Adapter) forage.Dispatcher {
+	return forage.Dispatcher{Routes: &routeMap{routes: map[string]forage.Route{first.Name: first, second.Name: second}}, Adapters: adapterMap{"test": adapter}}
 }
 
 type adapterMap map[string]forage.Adapter
