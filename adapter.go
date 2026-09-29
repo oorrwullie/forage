@@ -21,24 +21,24 @@ type Request struct {
 
 // Usage is provider-neutral token evidence.
 type Usage struct {
-	InputTokens     int
-	OutputTokens    int
-	ReasoningTokens int
+	InputTokens     int `json:"input_tokens"`
+	OutputTokens    int `json:"output_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 // Execution is the single canonical provider-neutral execution/evidence record.
 type Execution struct {
-	Route          string
-	Provider       string
-	RequestedModel string
-	EffectiveModel string
-	Usage          Usage
+	Route          string `json:"route"`
+	Provider       string `json:"provider"`
+	RequestedModel string `json:"requested_model"`
+	EffectiveModel string `json:"effective_model"`
+	Usage          Usage  `json:"usage"`
 }
 
 // Response is a plain non-streaming completion result.
 type Response struct {
-	Output    string
-	Execution Execution
+	Output    string    `json:"output"`
+	Execution Execution `json:"execution"`
 }
 
 // Adapter executes one route. It receives a route and request, never policy.
