@@ -1,0 +1,31 @@
+routes:
+  - name: local-qwen
+    provider: ollama
+    model: qwen3-coder:30b
+    endpoint: http://127.0.0.1:11434/api/chat
+    cost: free
+    data_policy: local
+    capabilities:
+      chat: true
+      json_schema: false
+      usage: true
+      reasoning_usage: false
+      context_tokens: 262144
+
+  # Example OpenAI-compatible route.
+  #
+  # Set FORAGE_OPENAI_BEARER_TOKEN at runtime if authentication is required.
+  # Do not store provider credentials here.
+  #
+  # - name: compatible-example
+  #   provider: openai-compatible
+  #   model: example-model
+  #   endpoint: https://example.invalid/v1/chat/completions
+  #   cost: paid
+  #   data_policy: no-train
+  #   capabilities:
+  #     chat: true
+  #     json_schema: false
+  #     usage: true
+  #     reasoning_usage: true
+  #     context_tokens: 32768
