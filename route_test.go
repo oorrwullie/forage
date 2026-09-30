@@ -82,6 +82,41 @@ func TestEvaluateEnforcesContextAndPinnedModel(t *testing.T) {
 	}
 }
 
+func TestEvaluateRejectsExcludedModel(t *testing.T) {
+	route := freeRoute()
+	need := zeroCostNeed()
+	need.ExcludedModels = []string{route.Model}
+
+	if got := forage.Evaluate([]forage.Route{route}, need); len(got.Eligible) != 0 {
+		t.Fatalf("eligible = %#v, want excluded model rejection", got.Eligible)
+	}
+}
+
+func TestEvaluateRejectsExcludedModelAcrossRoutes(t *testing.T) {
+	first := freeRoute()
+	second := freeRoute()
+	second.Name = "same-model-other-route"
+	second.Provider = "other"
+
+	need := zeroCostNeed()
+	need.ExcludedModels = []string{first.Model}
+
+	if got := forage.Evaluate([]forage.Route{first, second}, need); len(got.Eligible) != 0 {
+		t.Fatalf("eligible = %#v, want every route using excluded model rejected", got.Eligible)
+	}
+}
+
+func TestEvaluatePinnedExcludedModelHasNoEligibleRoute(t *testing.T) {
+	route := freeRoute()
+	need := zeroCostNeed()
+	need.PinnedModel = route.Model
+	need.ExcludedModels = []string{route.Model}
+
+	if got := forage.Evaluate([]forage.Route{route}, need); len(got.Eligible) != 0 {
+		t.Fatalf("eligible = %#v, want pinned excluded model rejected", got.Eligible)
+	}
+}
+
 func TestEvaluatePinnedModelCannotBypassZeroCost(t *testing.T) {
 	paid := freeRoute()
 	paid.CostClass = forage.CostPaid
@@ -120,6 +155,40 @@ func TestDispatchRevalidatesRouteImmediatelyBeforeChat(t *testing.T) {
 	}
 	if adapter.calls != 0 {
 		t.Fatalf("Adapter.Chat calls = %d, want 0 after route becomes paid", adapter.calls)
+	}
+}
+
+func TestDispatchRevalidationRejectsRouteMutatedToExcludedModel(t *testing.T) {
+	route := freeRoute()
+	need := zeroCostNeed()
+	need.ExcludedModels = []string{"excluded-model"}
+
+	resolver := &routeMap{routes: map[string]forage.Route{route.Name: route}}
+	adapter := &recordingAdapter{}
+	dispatcher := forage.Dispatcher{
+		Routes:   resolver,
+		Adapters: adapterMap{"test": adapter},
+	}
+
+	candidates := forage.Evaluate([]forage.Route{route}, need).Eligible
+	if len(candidates) != 1 {
+		t.Fatalf("initial candidates = %d, want 1", len(candidates))
+	}
+
+	mutated := route
+	mutated.Model = "excluded-model"
+	resolver.routes[route.Name] = mutated
+
+	_, err := dispatcher.Dispatch(
+		context.Background(),
+		candidates,
+		forage.Request{Need: need},
+	)
+	if !errors.Is(err, forage.ErrNoEligibleRoute) {
+		t.Fatalf("Dispatch() error = %v, want ErrNoEligibleRoute", err)
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("adapter calls = %d, want 0", adapter.calls)
 	}
 }
 

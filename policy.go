@@ -23,6 +23,7 @@ type Need struct {
 	RequireReasoningUsage bool
 	ContextTokens         int
 	PinnedModel           string
+	ExcludedModels        []string
 }
 
 // Rejection explains why one route was excluded by pure policy.
@@ -57,6 +58,11 @@ func eligible(route Route, need Need) string {
 	}
 	if need.PinnedModel != "" && route.Model != need.PinnedModel {
 		return "model does not match pinned model"
+	}
+	for _, excludedModel := range need.ExcludedModels {
+		if route.Model == excludedModel {
+			return "model is excluded"
+		}
 	}
 	if need.RequireLocal && route.DataPolicy != DataPolicyLocal {
 		return "route is not local"

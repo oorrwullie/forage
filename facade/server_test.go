@@ -134,6 +134,31 @@ func TestHandlerFailsClosedForPolicyAndOversizedBodies(t *testing.T) {
 	}
 }
 
+func TestHandlerExcludedModelsReachRoutePolicy(t *testing.T) {
+	route := freeRoute()
+	adapter := &recordingAdapter{}
+	server := newServer(t, route, adapter)
+
+	body := `{"input":"hello","need":{"sensitivity":"public","require_chat":true,"excluded_models":["` + route.Model + `"]}}`
+	req := request(
+		http.MethodPost,
+		"/v1/chat",
+		"Bearer facade-token",
+		body,
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("adapter calls = %d, want 0", adapter.calls)
+	}
+}
+
 func TestHandlerMapsDispatchFailureWithoutLeakingProviderError(t *testing.T) {
 	adapter := &recordingAdapter{err: errors.New("provider secret failure")}
 	server := newServer(t, freeRoute(), adapter)

@@ -187,8 +187,20 @@ Need can constrain routing by:
 | RequireReasoningUsage | Require reasoning-token reporting |
 | ContextTokens | Require at least this context capacity |
 | PinnedModel | Require an exact configured model |
+| ExcludedModels | Reject routes configured with any exact excluded model identity |
 
 Budget.MaxAttempts bounds provider execution attempts for one dispatch.
+
+`ExcludedModels` is a caller-declared negative route constraint. A route is
+ineligible when its configured model exactly matches an excluded identity. If
+the same model is configured on multiple routes, every such route is
+ineligible.
+
+This guarantees that Forage will not intentionally dispatch a route configured
+with an excluded model. It does not create a normalized cross-provider model
+identity: comparisons use the exact configured model string. Providers may
+currently omit effective-model identity; when they report a non-empty effective
+model, the existing effective-model mismatch check remains authoritative.
 
 ## Sensitivity and data policy
 

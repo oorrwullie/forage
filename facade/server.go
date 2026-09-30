@@ -103,17 +103,18 @@ type wireRequest struct {
 }
 
 type wireNeed struct {
-	ZeroCost              bool   `json:"zero_cost"`
-	Sensitivity           string `json:"sensitivity"`
-	AllowMayTrain         bool   `json:"allow_may_train"`
-	AllowUnknownPolicy    bool   `json:"allow_unknown_policy"`
-	RequireLocal          bool   `json:"require_local"`
-	RequireChat           bool   `json:"require_chat"`
-	RequireJSONSchema     bool   `json:"require_json_schema"`
-	RequireUsage          bool   `json:"require_usage"`
-	RequireReasoningUsage bool   `json:"require_reasoning_usage"`
-	ContextTokens         int    `json:"context_tokens"`
-	PinnedModel           string `json:"pinned_model"`
+	ZeroCost              bool     `json:"zero_cost"`
+	Sensitivity           string   `json:"sensitivity"`
+	AllowMayTrain         bool     `json:"allow_may_train"`
+	AllowUnknownPolicy    bool     `json:"allow_unknown_policy"`
+	RequireLocal          bool     `json:"require_local"`
+	RequireChat           bool     `json:"require_chat"`
+	RequireJSONSchema     bool     `json:"require_json_schema"`
+	RequireUsage          bool     `json:"require_usage"`
+	RequireReasoningUsage bool     `json:"require_reasoning_usage"`
+	ContextTokens         int      `json:"context_tokens"`
+	PinnedModel           string   `json:"pinned_model"`
+	ExcludedModels        []string `json:"excluded_models"`
 }
 
 type wireBudget struct {
@@ -144,6 +145,7 @@ func decodeRequest(w http.ResponseWriter, r *http.Request) (forage.Request, erro
 			RequireReasoningUsage: wire.Need.RequireReasoningUsage,
 			ContextTokens:         wire.Need.ContextTokens,
 			PinnedModel:           wire.Need.PinnedModel,
+			ExcludedModels:        wire.Need.ExcludedModels,
 		},
 		Budget: forage.Budget{MaxAttempts: wire.Budget.MaxAttempts},
 	}, nil
