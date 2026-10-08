@@ -10,10 +10,12 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
 	"github.com/oorrwullie/forage"
+	"github.com/oorrwullie/forage/config"
 )
 
 // MaxRequestBodyBytes bounds one facade request to one mebibyte.
@@ -24,6 +26,15 @@ type Server struct {
 	routes     []forage.Route
 	dispatcher forage.Dispatcher
 	token      []byte
+	configID   string
+	build      buildIdentity
+}
+
+type buildIdentity struct {
+	Implementation string `json:"implementation"`
+	Version        string `json:"version"`
+	Revision       string `json:"revision,omitempty"`
+	Modified       bool   `json:"modified,omitempty"`
 }
 
 // New constructs a facade with configured routes, the normal dispatcher, and
@@ -32,10 +43,16 @@ func New(routes []forage.Route, dispatcher forage.Dispatcher, bearerToken string
 	if bearerToken == "" {
 		return nil, errors.New("facade bearer token is required")
 	}
+	configID, err := (config.Config{Routes: routes}).Identity()
+	if err != nil {
+		return nil, fmt.Errorf("invalid facade configuration: %w", err)
+	}
 	return &Server{
 		routes:     append([]forage.Route(nil), routes...),
 		dispatcher: dispatcher,
 		token:      []byte(bearerToken),
+		configID:   configID,
+		build:      currentBuildIdentity(),
 	}, nil
 }
 
@@ -43,6 +60,10 @@ func New(routes []forage.Route, dispatcher forage.Dispatcher, bearerToken string
 func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.serveHTTP) }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/runtime" {
+		s.serveRuntime(w, r)
+		return
+	}
 	if r.URL.Path != "/v1/chat" {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -81,6 +102,43 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) serveRuntime(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.authorized(r.Header.Get("Authorization")) {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Status   string        `json:"status"`
+		Build    buildIdentity `json:"build"`
+		ConfigID string        `json:"config_sha256"`
+	}{Status: "ready", Build: s.build, ConfigID: s.configID})
+}
+
+func currentBuildIdentity() buildIdentity {
+	identity := buildIdentity{Implementation: "github.com/oorrwullie/forage", Version: "(devel)"}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return identity
+	}
+	if info.Main.Version != "" {
+		identity.Version = info.Main.Version
+	}
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			identity.Revision = setting.Value
+		case "vcs.modified":
+			identity.Modified = setting.Value == "true"
+		}
+	}
+	return identity
 }
 
 func (s *Server) authorized(header string) bool {

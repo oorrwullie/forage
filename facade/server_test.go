@@ -2,6 +2,7 @@ package facade_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,59 @@ func TestNewRejectsEmptyBearerToken(t *testing.T) {
 	_, err := facade.New(nil, forage.Dispatcher{}, "")
 	if err == nil {
 		t.Fatal("New() error = nil, want empty token rejected")
+	}
+}
+
+func TestRuntimeMetadataRequiresAuthentication(t *testing.T) {
+	server := newServer(t, freeRoute(), &recordingAdapter{})
+	for _, auth := range []string{"", "Bearer wrong-token", "Basic facade-token"} {
+		req := request(http.MethodGet, "/v1/runtime", auth, "")
+		rr := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("authorization %q status = %d, want 401", auth, rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "facade-token") {
+			t.Fatalf("response leaked token: %q", rr.Body.String())
+		}
+	}
+}
+
+func TestRuntimeMetadataReportsReadyBuildAndAcceptedConfigIdentity(t *testing.T) {
+	server := newServer(t, freeRoute(), &recordingAdapter{})
+	req := request(http.MethodGet, "/v1/runtime", "Bearer facade-token", "")
+	rr := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var response struct {
+		Status string `json:"status"`
+		Build  struct {
+			Implementation string `json:"implementation"`
+			Version        string `json:"version"`
+		} `json:"build"`
+		ConfigID string `json:"config_sha256"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Status != "ready" || response.Build.Implementation != "github.com/oorrwullie/forage" || response.Build.Version == "" || len(response.ConfigID) != 64 {
+		t.Fatalf("metadata = %#v", response)
+	}
+	for _, secret := range []string{"facade-token", "provider-secret", "Bearer"} {
+		if strings.Contains(rr.Body.String(), secret) {
+			t.Fatalf("metadata leaked secret material %q: %s", secret, rr.Body.String())
+		}
+	}
+}
+
+func TestNewRejectsInvalidRoutesBeforeServingIdentity(t *testing.T) {
+	invalid := freeRoute()
+	invalid.Model = ""
+	if _, err := facade.New([]forage.Route{invalid}, forage.Dispatcher{}, "facade-token"); err == nil {
+		t.Fatal("New() error = nil, want invalid configuration rejected")
 	}
 }
 

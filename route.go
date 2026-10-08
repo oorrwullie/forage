@@ -27,22 +27,22 @@ const (
 
 // Capabilities declares behavior needed for a request to use a route.
 type Capabilities struct {
-	Chat           bool `yaml:"chat"`
-	JSONSchema     bool `yaml:"json_schema"`
-	Usage          bool `yaml:"usage"`
-	ReasoningUsage bool `yaml:"reasoning_usage"`
-	ContextTokens  int  `yaml:"context_tokens"`
+	Chat           bool `json:"chat" yaml:"chat"`
+	JSONSchema     bool `json:"json_schema" yaml:"json_schema"`
+	Usage          bool `json:"usage" yaml:"usage"`
+	ReasoningUsage bool `json:"reasoning_usage" yaml:"reasoning_usage"`
+	ContextTokens  int  `json:"context_tokens" yaml:"context_tokens"`
 }
 
 // Route is one concrete execution path. The same model may exist on several routes.
 type Route struct {
-	Name         string       `yaml:"name"`
-	Provider     string       `yaml:"provider"`
-	Model        string       `yaml:"model"`
-	Endpoint     string       `yaml:"endpoint"`
-	CostClass    CostClass    `yaml:"cost"`
-	DataPolicy   DataPolicy   `yaml:"data_policy"`
-	Capabilities Capabilities `yaml:"capabilities"`
+	Name         string       `json:"name" yaml:"name"`
+	Provider     string       `json:"provider" yaml:"provider"`
+	Model        string       `json:"model" yaml:"model"`
+	Endpoint     string       `json:"endpoint" yaml:"endpoint"`
+	CostClass    CostClass    `json:"cost" yaml:"cost"`
+	DataPolicy   DataPolicy   `json:"data_policy" yaml:"data_policy"`
+	Capabilities Capabilities `json:"capabilities" yaml:"capabilities"`
 }
 
 // Validate verifies a route's explicit configuration shape. Eligibility is

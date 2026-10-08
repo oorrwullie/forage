@@ -132,6 +132,7 @@ The example configuration contains a local Qwen route through Ollama:
 Forage exposes an authenticated inference boundary at:
 
     POST /v1/chat
+    GET  /v1/runtime
 
 The facade requires a bearer token and accepts only an explicit loopback listen
 address.
@@ -167,6 +168,14 @@ Example request:
 
 Successful responses include provider-neutral execution evidence: the selected
 route, provider, requested model, effective model, and provider-reported usage.
+
+An authenticated `GET /v1/runtime` returns readiness (`status: "ready"`), the
+Forage module version and VCS build identity available from Go build metadata,
+and `config_sha256`, the identity of the accepted route configuration. The
+configuration identity is SHA-256 over compact JSON of the validated `Config`
+struct: all declared route and capability fields are included, route order is
+preserved because it is fallback order, and YAML whitespace, comments, key
+order, and runtime environment variables are excluded.
 
 ## Request constraints
 
@@ -308,6 +317,7 @@ See [config.example.yaml](config.example.yaml).
 The facade intentionally has a small surface:
 
     POST /v1/chat
+    GET  /v1/runtime
     Authorization: Bearer <FORAGE_FACADE_TOKEN>
     Content-Type: application/json
 
